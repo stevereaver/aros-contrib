@@ -1,0 +1,150 @@
+--- lynx2.9.2.orig/WWW/Library/Implementation/www_tcp.h
++++ lynx2.9.2/WWW/Library/Implementation/www_tcp.h
+@@ -193,6 +193,41 @@
+ #endif
+ 
+ /*
++ * AROS - uses bsdsocket.library, so sockets are NOT POSIX file descriptors.
++ * recv/send/CloseSocket must be used for network I/O.
++ */
++#ifdef AROS
++/* Undefine BOOL/BOOLEAN before pulling in exec/types.h via bsdsocket,
++ * to avoid conflicting types with Lynx's own typedef char BOOLEAN. */
++#ifdef BOOL
++#undef BOOL
++#endif
++#ifdef BOOLEAN
++#undef BOOLEAN
++#endif
++#include <proto/bsdsocket.h>
++/* Restore Lynx's BOOLEAN = char after exec/types.h has been included */
++#undef  BOOLEAN
++#undef  BOOL
++typedef char BOOLEAN;
++#define BOOL BOOLEAN
++#undef  NETREAD
++#undef  NETWRITE
++#undef  NETCLOSE
++#undef  IOCTL
++#define NETREAD(s,b,l)   recv((s),(b),(l),0)
++#define NETWRITE(s,b,l)  send((s),(b),(l),0)
++#define NETCLOSE(s)      CloseSocket(s)
++#define IOCTL(s,cmd,arg) IoctlSocket((s),(cmd),(APTR)(arg))
++/* Errno() is not an lvalue; use a static so SET_EINTR = EINTR compiles */
++extern int aros_socket_errno;
++#undef  SOCKET_ERRNO
++#define SOCKET_ERRNO aros_socket_errno
++#undef  GOT_SYSTEM
++#undef  GOT_PIPE
++#endif /* AROS */
++
++/*
+ IBM-PC running Windows NT
+ 
+ 	These parameters provided by  Susan C. Weber <sweber@kyle.eitech.com>.
+ 
+--- lynx2.9.2.orig/WWW/Library/Implementation/HTTCP.c
++++ lynx2.9.2/WWW/Library/Implementation/HTTCP.c
+@@ -21,6 +21,10 @@
+ #define LYNX_ADDRINFO   struct addrinfo
+ #define LYNX_HOSTENT    struct hostent
+ 
++#ifdef AROS
++int aros_socket_errno = 0;
++#endif
++
+ #include <HTUtils.h>
+ #include <HTParse.h>
+ #include <HTAlert.h>
+@@ -1774,6 +1774,10 @@
+ 
+ #ifdef _WINDOWS
+ #define SET_EINTR WSASetLastError(EINTR)
+ #else
++#ifdef AROS
++#define SET_EINTR do { aros_socket_errno = EINTR; } while(0)
++#else
+ #define SET_EINTR SOCKET_ERRNO = EINTR
++#endif
+ #endif
+--- lynx2.9.2.orig/userdefs.h
++++ lynx2.9.2/userdefs.h
+@@ -366,7 +366,11 @@
+  * the "TMPDIR" (unix), or "TEMP" or "TMP" (Windows,DOS,OS/2)
+  * variable.
+  */
++#ifdef AROS
++#define TEMP_SPACE "T:"
++#else
+ #define TEMP_SPACE "/tmp/"
++#endif /* AROS */
+ 
+ /********************************
+  * Comment this line out to disable code that implements command logging
+--- lynx2.9.2.orig/src/LYUtils.c
++++ lynx2.9.2/src/LYUtils.c
+@@ -5172,24 +5172,30 @@
+ 	    }
+ 	    StrAllocCopy(HomeDir, cp);
+ #else
+-#ifdef UNIX
++#ifdef AROS
++            /* AROS: no getpwuid; use HOME env or ENVARC: as fallback */
++            {
++                char *aros_home = LYGetEnv("HOME");
++                StrAllocCopy(HomeDir, aros_home ? aros_home : "ENVARC:");
++            }
++#elif defined(UNIX)
+ #ifdef HAVE_UTMP
+-	    /*
+-	     * One could use getlogin() and getpwnam() here instead.
+-	     */
+-	    struct passwd *pw = getpwuid(geteuid());
+-
+-	    if (pw && pw->pw_dir) {
+-		StrAllocCopy(HomeDir, pw->pw_dir);
+-	    } else
+-#endif
+-	    {
+-		/*
+-		 * Use /tmp; it should be writable.
+-		 */
+-		StrAllocCopy(HomeDir, "/tmp");
+-	    }
++            /*
++             * One could use getlogin() and getpwnam() here instead.
++             */
++            struct passwd *pw = getpwuid(geteuid());
++
++            if (pw && pw->pw_dir) {
++                StrAllocCopy(HomeDir, pw->pw_dir);
++            } else
+ #endif
++            {
++                /*
++                 * Use /tmp; it should be writable.
++                 */
++                StrAllocCopy(HomeDir, "/tmp");
++            }
++#endif /* AROS */
+ #endif /* VMS */
+ 	} else {
+ 	    StrAllocCopy(HomeDir, cp);
+@@ -5497,6 +5503,7 @@
+ 		    break;
+ 		}
+ 	    }
++#ifndef AROS
+ 	    pw = getpwnam(temp + 1);
+ 	    *save = saved;
+ 	    if (pw != 0 && non_empty(pw->pw_dir)) {
+@@ -5506,6 +5513,9 @@
+ 		StrAllocCat(*pathname, temp);
+ 		FREE(temp);
+ 	    }
++#else
++            pw = NULL;
++#endif /* AROS */
+ #endif
+ 	}
+ 	CTRACE((tfp, "expanded path %s\n", *pathname));

@@ -1,0 +1,33 @@
+# Minimal termcap for AROS Lynx - covers vt100 and ansi
+#
+vt100|vt100-am|dec vt100:\
+	:am:bs:ms:mi:km:ho:\
+	:co#80:li#24:it#8:\
+	:al=\E[L:dl=\E[M:ic=\E[@:dc=\E[P:\
+	:al=\E[L:dl=\E[M:\
+	:cl=\E[H\E[2J:cd=\E[J:ce=\E[K:\
+	:cm=\E[%i%d;%dH:nd=\E[C:up=\E[A:do=\n:le=\b:\
+	:so=\E[7m:se=\E[m:us=\E[4m:ue=\E[m:\
+	:mb=\E[5m:md=\E[1m:mr=\E[7m:me=\E[m:\
+	:ti=\E[?1049h:te=\E[?1049l:\
+	:ks=\E[?1h\E=:ke=\E[?1l\E>:\
+	:ku=\EOA:kd=\EOB:kr=\EOC:kl=\EOD:\
+	:k1=\EOP:k2=\EOQ:k3=\EOR:k4=\EOS:\
+	:k5=\E[15~:k6=\E[17~:k7=\E[18~:k8=\E[19~:\
+	:k9=\E[20~:k0=\E[21~:\
+	:kh=\E[H:kH=\E[F:kI=\E[2~:kD=\E[3~:\
+	:kN=\E[6~:kP=\E[5~:\
+	:ve=\E[?25h:vi=\E[?25l:\
+	:bl=^G:cr=\r:ta=^I:
+
+ansi|ansi/pc-term:\
+	:am:bs:\
+	:co#80:li#24:\
+	:cl=\E[H\E[2J:cd=\E[J:ce=\E[K:\
+	:cm=\E[%i%d;%dH:nd=\E[C:up=\E[A:do=\n:le=\b:\
+	:so=\E[7m:se=\E[m:us=\E[4m:ue=\E[m:\
+	:md=\E[1m:mr=\E[7m:me=\E[m:\
+	:ku=\E[A:kd=\E[B:kr=\E[C:kl=\E[D:\
+	:kh=\E[H:kH=\E[F:kI=\E[2~:kD=\E[3~:\
+	:kN=\E[6~:kP=\E[5~:\
+	:bl=^G:cr=\r:ta=^I:

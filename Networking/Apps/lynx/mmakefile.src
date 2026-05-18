@@ -1,0 +1,292 @@
+# Copyright © 2025, The AROS Development Team. All rights reserved.
+#
+# Lynx text-mode web browser 2.9.2 for AROS
+#
+# The Lynx upstream archive is named "lynx2.9.2.tar.bz2" (no hyphen).
+# The AROS build system always constructs the download name as package-version
+# (i.e. lynx-2.9.2.tar.bz2), so we pre-seed portssources/ with that name.
+# srcdir overrides the extracted directory name to match the actual tarball.
+# patches_specs explicitly names our patch file (lynx2.9.2-aros.diff).
+
+include $(SRCDIR)/config/aros-contrib.cfg
+
+#MM- contrib-networking-apps : contrib-networking-apps-lynx
+
+#MM- contrib-networking-apps-lynx : contrib-networking-apps-lynx-bin \
+#MM  contrib-networking-apps-lynx-cpy
+
+#MM- contrib-networking-apps-lynx-bin : contrib-openssl contrib-gnu-termcap
+
+# The fetch script will look for lynx-2.9.2.tar.bz2; we pre-seed portssources/
+# with a copy downloaded from the upstream URL below (no-hyphen filename).
+REPOSITORIES := https://invisible-mirror.net/archives/lynx/tarballs \
+    https://invisible-island.net/archives/lynx/tarballs
+
+LYNX_VERSION  := 2.9.2
+PACKAGE       := lynx
+PKG_ARCHIVE   := $(PACKAGE)$(LYNX_VERSION)
+PROGDIR       := $(AROS_CONTRIB)/Networking/Apps/Lynx
+LYNX_PORTDIR  := $(PORTSDIR)/$(PACKAGE)
+LYNX_SOURCE   := $(LYNX_PORTDIR)/$(PKG_ARCHIVE)
+
+# The patch spec format is: patchfile:srcdir:patch-options
+# archbase = lynx-2.9.2, srcdir = lynx2.9.2, patch = lynx2.9.2-aros.diff
+LYNX_PATCH_SPEC := lynx2.9.2-aros.diff:$(PKG_ARCHIVE):-f,-p1,--fuzz=3
+
+# AROS uses bsdsocket.library so sockets are not POSIX file descriptors;
+# recv/send/CloseSocket must be used (handled in lynx2.9.2-aros.diff via
+# the AROS section added to www_tcp.h).
+# We also disable features that require fork()/execve() or Unix-only APIs.
+LYNX_OPTIONS := \
+    --disable-shared \
+    --without-x \
+    --with-screen=curses \
+    --with-ssl=$(AROS_DEVELOPER) \
+    --with-zlib \
+    --without-bzlib \
+    --without-brotli \
+    --disable-ipv6 \
+    --disable-nsl-fork \
+    --disable-cgi-links \
+    --disable-color-style \
+    --disable-prettysrc \
+    --enable-persistent-cookies \
+    --enable-sessions \
+    --libdir=$(AROS_LIB) \
+    --with-curses-dir=$(AROS_DEVELOPER)
+
+USER_CPPFLAGS := -D__BSD_VISIBLE=1 -D_XOPEN_SOURCE=500 -DAROS
+
+LYNX_PKGDIR  := $(GENDIR)/$(CURDIR)/$(PACKAGE)
+AROS_STUBS_O := $(LYNX_PKGDIR)/aros_curses.o
+AROS_CC      := $(TARGET_CC)
+
+%fetch_and_build mmake=contrib-networking-apps-lynx-bin \
+    package=$(PACKAGE) version=$(LYNX_VERSION) \
+    srcdir=$(PKG_ARCHIVE) \
+    suffixes="tar.bz2" \
+    package_repo="$(REPOSITORIES)" \
+    patches_specs="$(LYNX_PATCH_SPEC)" \
+    prefix=$(PROGDIR) \
+    aros_prefix=/Networking/Apps/Lynx \
+    extraoptions="$(LYNX_OPTIONS) --cache-file=$(SRCDIR)/$(CURDIR)/aros/config.cache LDFLAGS='-m64 -mcmodel=large -mno-red-zone -L$(AROS_LIB) $(AROS_STUBS_O) -ltermcap'" \
+    nix=yes gnuflags=yes nlsflag=no xflag=no \
+    preconfigure="contrib-networking-apps-lynx-precfg" \
+    postinstall="contrib-networking-apps-lynx-install"
+
+#MM
+contrib-networking-apps-lynx-precfg :
+	$(MKDIR) $(LYNX_PKGDIR)
+	$(CP) $(SRCDIR)/$(CURDIR)/aros/lynx_cfg.h $(LYNX_PKGDIR)/lynx_cfg.h
+	$(AROS_CC) $(TARGET_CFLAGS) -I$(AROS_DEVELOPER)/include -c $(SRCDIR)/$(CURDIR)/aros/aros_curses.c -o $(AROS_STUBS_O)
+	@if ! grep -q "configure.real" $(LYNX_SOURCE)/configure ; then \
+	    mv $(LYNX_SOURCE)/configure $(LYNX_SOURCE)/configure.real ; \
+	    printf '#!/bin/sh\ndir=$$(dirname "$$0")\n"$$dir/configure.real" "$$@"\nret=$$?\n[ $$ret -ne 0 ] && exit $$ret\nfor f in config.status lynx_cfg.h; do\n  [ -f "$$f" ] || continue\n  sed -i "s|/Networking/Apps/Lynx/etc/lynx\\.cfg|Lynx:lynx.cfg|g;s|/Networking/Apps/Lynx/etc/lynx\\.lss|Lynx:lynx.lss|g;s|/Networking/Apps/Lynx/etc|Lynx:|g" "$$f"\ndone\nexit 0\n' \
+	        > $(LYNX_SOURCE)/configure ; \
+	    chmod +x $(LYNX_SOURCE)/configure ; \
+	fi
+	@if ! grep -q "Lynx:lynx.cfg" $(LYNX_SOURCE)/userdefs.h ; then \
+	    python3 -c "\
+f=open('$(LYNX_SOURCE)/userdefs.h');\
+s=f.read();\
+f.close();\
+aros_defs='#ifdef AROS\n#define LYNX_CFG_FILE \"Lynx:lynx.cfg\"\n#define LYNX_CFG_PATH \"Lynx:\"\n#define LYNX_LSS_FILE \"Lynx:lynx.lss\"\n#endif /* AROS */\n';\
+s=s.replace('#ifndef LYNX_CFG_FILE\n#define LYNX_CFG_FILE \"Lynx_Dir:lynx.cfg\"',aros_defs+'#ifndef LYNX_CFG_FILE\n#define LYNX_CFG_FILE \"Lynx_Dir:lynx.cfg\"',1);\
+open('$(LYNX_SOURCE)/userdefs.h','w').write(s);\
+" ; \
+	fi
+	@if ! grep -q "AROS_LYGetYX" $(LYNX_SOURCE)/src/LYCurses.h ; then \
+	    python3 -c "\
+f=open('$(LYNX_SOURCE)/src/LYCurses.h');\
+s=f.read();\
+f.close();\
+s=s.replace('#define LYGetYX(y, x)   getyx(LYwin, y, x)','#define LYGetYX(y, x)   ((LYwin) ? getyx(LYwin, y, x) : ((y)=0,(x)=0)) /* AROS_LYGetYX */',1);\
+s=s.replace('#define LYGetYX(y, x)   y = LYwin->_cury, x = LYwin->_curx','#define LYGetYX(y, x)   ((LYwin) ? ((y)=LYwin->_cury,(x)=LYwin->_curx) : ((y)=0,(x)=0)) /* AROS_LYGetYX */',1);\
+open('$(LYNX_SOURCE)/src/LYCurses.h','w').write(s);\
+" ; \
+	fi
+	@if ! grep -q "proto/bsdsocket.h" $(LYNX_SOURCE)/src/LYMain.c ; then \
+	    python3 -c "\
+import re, sys;\
+f=open('$(LYNX_SOURCE)/src/LYMain.c');\
+s=f.read();\
+f.close();\
+s=s.replace('#include <LYLeaks.h>','#include <LYLeaks.h>\n\n#ifdef AROS\n#include <proto/exec.h>\n#include <proto/bsdsocket.h>\nstruct Library *SocketBase = NULL;\n#endif /* AROS */\n',1);\
+s=s.replace('    WSADATA WSAData;\n#endif /* _WINDOWS */','    WSADATA WSAData;\n#endif /* _WINDOWS */\n#ifdef AROS\n    SocketBase = OpenLibrary(\"bsdsocket.library\", 4);\n    if (!SocketBase) { fprintf(stderr, \"Cannot open bsdsocket.library\\\\\\\\n\"); return 1; }\n#endif /* AROS */\n',1);\
+open('$(LYNX_SOURCE)/src/LYMain.c','w').write(s);\
+" ; \
+	fi
+	@printf '%s\n' \
+	    '/* AROS: minimal curses stub for configure - backed by libtermcap */' \
+	    '#ifndef _AROS_CURSES_H' \
+	    '#define _AROS_CURSES_H' \
+	    '#include <termcap.h>' \
+	    '#include <stdio.h>' \
+	    'typedef unsigned long chtype;' \
+	    'typedef unsigned long attr_t;' \
+	    'typedef int cchar_t;' \
+	    'typedef struct _win_st WINDOW;' \
+	    'typedef struct _screen SCREEN;' \
+	    'struct _win_st { int _cury, _curx; attr_t _attrs; short _color; };' \
+	    'struct _screen { int dummy; };' \
+	    'extern WINDOW *stdscr;' \
+	    'extern WINDOW *curscr;' \
+	    'extern int LINES, COLS, COLORS, COLOR_PAIRS;' \
+	    'extern chtype acs_map[];' \
+	    'extern chtype _acs_map[];' \
+	    'extern char ttytype[];' \
+	    '#define ERR  (-1)' \
+	    '#define OK   (0)' \
+	    '#define TRUE  1' \
+	    '#define FALSE 0' \
+	    '#define A_NORMAL     0x00000000UL' \
+	    '#define A_UNDERLINE  0x00020000UL' \
+	    '#define A_REVERSE    0x00040000UL' \
+	    '#define A_BLINK      0x00080000UL' \
+	    '#define A_DIM        0x00100000UL' \
+	    '#define A_BOLD       0x00200000UL' \
+	    '#define A_STANDOUT   0x00010000UL' \
+	    '#define A_PROTECT    0x01000000UL' \
+	    '#define A_INVIS      0x00800000UL' \
+	    '#define A_ALTCHARSET 0x00400000UL' \
+	    '#define A_CHARTEXT   0x000000FFUL' \
+	    '#define A_ATTRIBUTES 0xFFFFFF00UL' \
+	    '#define A_COLOR      0x0000FF00UL' \
+	    '#define COLOR_PAIRS_MAX 256' \
+	    '#define COLOR_PAIR(n)   (((chtype)(n)) << 8)' \
+	    '#define PAIR_NUMBER(a)  (((a) & A_COLOR) >> 8)' \
+	    '#define COLOR_BLACK  0' \
+	    '#define COLOR_RED    1' \
+	    '#define COLOR_GREEN  2' \
+	    '#define COLOR_YELLOW 3' \
+	    '#define COLOR_BLUE   4' \
+	    '#define COLOR_MAGENTA 5' \
+	    '#define COLOR_CYAN   6' \
+	    '#define COLOR_WHITE  7' \
+	    '#define getyx(win,y,x)   ((win) ? ((y)=(win)->_cury,(x)=(win)->_curx) : ((y)=0,(x)=0))' \
+	    '#define getbegyx(win,y,x) ((y)=0,(x)=0)' \
+	    'extern int initscr(void);' \
+	    'extern int endwin(void);' \
+	    'extern int cbreak(void);' \
+	    'extern int crmode(void);' \
+	    'extern int noecho(void);' \
+	    'extern int echo(void);' \
+	    'extern int keypad(WINDOW *, int);' \
+	    'extern int wrefresh(WINDOW *);' \
+	    'extern int refresh(void);' \
+	    'extern int clear(void);' \
+	    'extern int erase(void);' \
+	    'extern int clrtoeol(void);' \
+	    'extern int move(int, int);' \
+	    'extern int wmove(WINDOW *, int, int);' \
+	    'extern int waddch(WINDOW *, chtype);' \
+	    'extern int waddstr(WINDOW *, const char *);' \
+	    'extern int waddnstr(WINDOW *, const char *, int);' \
+	    'extern int wattrset(WINDOW *, int);' \
+	    'extern int wattron(WINDOW *, int);' \
+	    'extern int wattroff(WINDOW *, int);' \
+	    'extern int wbkgdset(WINDOW *, chtype);' \
+	    'extern int wbkgd(WINDOW *, chtype);' \
+	    'extern int clearok(WINDOW *, int);' \
+	    'extern int scrollok(WINDOW *, int);' \
+	    'extern int box(WINDOW *, chtype, chtype);' \
+	    'extern int touchwin(WINDOW *);' \
+	    'extern int touchline(WINDOW *, int, int);' \
+	    'extern int wredrawln(WINDOW *, int, int);' \
+	    'extern int wresize(WINDOW *, int, int);' \
+	    'extern int resizeterm(int, int);' \
+	    'extern int napms(int);' \
+	    'extern int newpad(int, int);' \
+	    'extern WINDOW *newwin(int, int, int, int);' \
+	    'extern int delwin(WINDOW *);' \
+	    'extern WINDOW *newterm(char *, FILE *, FILE *);' \
+	    'extern int delscreen(SCREEN *);' \
+	    'extern int define_key(const char *, int);' \
+	    'extern int use_default_colors(void);' \
+	    'extern int use_legacy_coding(int);' \
+	    'extern int assume_default_colors(int, int);' \
+	    'extern int start_color(void);' \
+	    'extern int has_colors(void);' \
+	    'extern int init_pair(short, short, short);' \
+	    'extern int pair_content(short, short *, short *);' \
+	    'extern int wattr_get(WINDOW *, attr_t *, short *, void *);' \
+	    'extern int wborder(WINDOW *, chtype, chtype, chtype, chtype, chtype, chtype, chtype, chtype);' \
+	    'extern int pnoutrefresh(WINDOW *, int, int, int, int, int, int);' \
+	    'extern int getattrs(WINDOW *);' \
+	    'extern int getbegx(WINDOW *);' \
+	    'extern int getbegy(WINDOW *);' \
+	    'extern WINDOW *derwin(WINDOW *, int, int, int, int);' \
+	    'extern int doupdate(void);' \
+	    'extern int wnoutrefresh(WINDOW *);' \
+	    'extern int wclear(WINDOW *);' \
+	    'extern int werase(WINDOW *);' \
+	    'extern int wclrtoeol(WINDOW *);' \
+	    '#define _nc_free_and_exit(x) exit(x)' \
+	    '#define _nc_freeall() (void)0' \
+	    '#define curses_exit(x) exit(x)' \
+	    '#endif /* _AROS_CURSES_H */' \
+	    > $(AROS_DEVELOPER)/include/curses.h
+	@if [ ! -f $(AROS_DEVELOPER)/lib/libcurses.a ]; then \
+	    ln -s $(AROS_DEVELOPER)/lib/libtermcap.a $(AROS_DEVELOPER)/lib/libcurses.a ; \
+	fi
+	@printf '%s\n' \
+	    'ac_cv_func_initscr=yes' \
+	    'ac_cv_func_endwin=yes' \
+	    'cf_cv_screen=curses' \
+	    'cf_term_lib=termcap' \
+	    'cf_curs_lib=curses' \
+	    'ac_cv_lib_termcap_tgoto=yes' \
+	    'ac_cv_lib_curses_initscr=yes' \
+	    'ac_cv_func_socket=yes' \
+	    'ac_cv_func_connect=yes' \
+	    'ac_cv_func_gethostbyname=yes' \
+	    'ac_cv_func_gethostname=yes' \
+	    'ac_cv_func_inet_addr=yes' \
+	    'ac_cv_func_inet_ntoa=yes' \
+	    'ac_cv_func_select=yes' \
+	    'ac_cv_func_cbreak=yes' \
+	    'ac_cv_func_keypad=yes' \
+	    'ac_cv_func_touchwin=yes' \
+	    'ac_cv_func_touchline=yes' \
+	    'ac_cv_func_wredrawln=yes' \
+	    'ac_cv_func_wresize=yes' \
+	    'ac_cv_func_resizeterm=yes' \
+	    'ac_cv_func_napms=yes' \
+	    'ac_cv_func_newpad=yes' \
+	    'ac_cv_func_newterm=yes' \
+	    'ac_cv_func_delscreen=yes' \
+	    'ac_cv_func_define_key=yes' \
+	    'ac_cv_func_use_default_colors=yes' \
+	    'ac_cv_func_use_legacy_coding=yes' \
+	    'ac_cv_func_assume_default_colors=yes' \
+	    'ac_cv_func_wattr_get=yes' \
+	    'ac_cv_func_wborder=yes' \
+	    'ac_cv_func_pnoutrefresh=yes' \
+	    'ac_cv_func_getattrs=yes' \
+	    'ac_cv_func_getbegx=yes' \
+	    'ac_cv_func_getbegy=yes' \
+	    'cf_cv_curs_performance=yes' \
+	    'cf_cv_chtype_decl=yes' \
+	    'cf_cv_color_style=yes' \
+	    'cf_cv_color_curses=yes' \
+	    'cf_cv_fancy_curses=yes' \
+	    > $(SRCDIR)/$(CURDIR)/aros/config.cache
+
+#MM
+contrib-networking-apps-lynx-install :
+	$(MKDIR) $(PROGDIR)
+	-$(CP) $(LYNX_SOURCE)/lynx.cfg $(PROGDIR)/lynx.cfg
+	-$(CP) $(LYNX_SOURCE)/samples/lynx.lss $(PROGDIR)/lynx.lss
+	$(CP) $(PROGDIR)/bin/x86_64-aros-lynx $(PROGDIR)/Lynx
+	$(CP) $(SRCDIR)/$(CURDIR)/aros/termcap $(PROGDIR)/termcap
+
+CPYFILES := README CHANGES COPYHEADER COPYING
+
+%copy_files_q mmake=contrib-networking-apps-lynx-cpy \
+    files="$(CPYFILES)" src=$(LYNX_SOURCE) dst=$(PROGDIR)
+
+##MM
+contrib-networking-apps-lynx-clean :
+	$(RM) $(PROGDIR) $(OBJDIR) $(LYNX_PORTDIR)/$(PKG_ARCHIVE)*
+
+%common
